@@ -149,7 +149,23 @@ def get_audio_url(video_id):
     return res.json()["data"].get("audio", "")
 
 
-def download_audio(url, path, name):
+def get_audio_sources(video_ids):
+    sources = []
+    for index, video_id in enumerate(video_ids or []):
+        audio_url = get_audio_url(video_id)
+        if audio_url:
+            sources.append(
+                {
+                    "index": index + 1,
+                    "video_id": video_id,
+                    "url": audio_url,
+                }
+            )
+    return sources
+
+
+def download_audio(url, path, name, suffix=""):
+    os.makedirs(path, exist_ok=True)
     token = getToken()
     url = add_signature_for_url(url, token, *getSignature())
     _headers = headers.copy()
@@ -158,7 +174,7 @@ def download_audio(url, path, name):
     while res.status_code != 200:
         time.sleep(0.1)
         res = requests.get(url, headers=_headers)
-    with open(f"{path}/{name}.aac", "wb") as f:
+    with open(f"{path}/{name}{suffix}.aac", "wb") as f:
         f.write(res.content)
 
 

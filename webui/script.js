@@ -6,63 +6,75 @@ document.getElementsByClassName("close")[0].onclick = function () {
   document.getElementById("taskPopup").style.display = "none";
 };
 
-// Implement the logic to fetch course number and handle form submission
+document.getElementById("downloadType").onchange = function () {
+  const audioSourceMode = document.getElementById("audioSourceMode");
+  if (this.value === "3" && audioSourceMode.value === "none") {
+    audioSourceMode.value = "all";
+  }
+};
+
 function fetchCourseNumber() {
-  fetch(`/get_course?course_id=${document.getElementById("courseId").value}&auth=${document.getElementById("auth").value}`)
+  const courseId = encodeURIComponent(document.getElementById("courseId").value);
+  const auth = encodeURIComponent(document.getElementById("auth").value);
+  fetch(`/get_course?course_id=${courseId}&auth=${auth}`)
     .then((response) => response.json())
     .then((data) => {
-      console.log(data);
       if (data.code && data.code == 403) {
         document.getElementById("auth_prompt").innerHTML = data.msg;
         alert(data.msg);
       }
-      document.getElementById("courseList").innerHTML = ``;
-      document.getElementById("courseName11").innerHTML = `课程名: <b>${data.courseName == "" ? "未知" : data.courseName
-        }</b>`;
-      document.getElementById("professor11").innerHTML = `老师: <b>${data.professor == "" ? "未知" : data.professor
-        }</b>`;
+      document.getElementById("courseName11").innerHTML = `课程名: <b>${data.courseName == "" ? "未知" : data.courseName}</b>`;
+      document.getElementById("professor11").innerHTML = `老师: <b>${data.professor == "" ? "未知" : data.professor}</b>`;
+
       let courseListHTML = "";
       for (let i = 0; i < data.videoList.length; i++) {
         courseListHTML += `<li data-value="${i}">${data.videoList[i].title}</li>`;
       }
       document.getElementById("courseList").innerHTML = courseListHTML;
-      document.querySelectorAll("#courseList li").forEach((item) => {
-        item.addEventListener("click", () => {
-          item.classList.toggle("selected");
-        });
-      });
+      bindCourseListEvents();
     })
     .catch((error) => console.error("Error:", error));
 }
 
 document.getElementById("taskForm").onsubmit = function (event) {
   event.preventDefault();
-  let courseId = document.getElementById("courseId").value;
-  if (courseId.trim() == "") {
-    alert("课程名不能为空");
+  const courseId = document.getElementById("courseId").value.trim();
+  if (courseId == "") {
+    alert("课程 ID 不能为空");
     return;
   }
-  let downloadType = document.getElementById("downloadType").value;
-  let downloadAudio = document.getElementById("downloadAudio").value;
-  let selected_index = [];
+
+  const downloadType = document.getElementById("downloadType").value;
+  const audioSourceMode = document.getElementById("audioSourceMode").value;
+  if (downloadType === "3" && audioSourceMode === "none") {
+    alert("仅音频任务需要至少选择一个音频来源");
+    return;
+  }
+
+  let selectedIndex = [];
   let courseList = document.getElementById("courseList");
   for (let i = 0; i < courseList.childNodes.length; i++) {
     let child = courseList.childNodes[i];
     if (child.className == "selected") {
-      selected_index.push(child.getAttribute("data-value"));
+      selectedIndex.push(child.getAttribute("data-value"));
     }
   }
-  let course_number = selected_index.join(",");
+  if (selectedIndex.length === 0) {
+    alert("请至少选择一个课程视频");
+    return;
+  }
+
   fetch("/new_task", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      course_id: courseId.trim(),
-      course_number: course_number,
+      course_id: courseId,
+      course_number: selectedIndex.join(","),
       download_version: downloadType,
-      download_audio: downloadAudio
+      audio_source_mode: audioSourceMode,
+      download_audio: audioSourceMode === "none" ? "2" : "1",
     }),
   })
     .then((response) => response.json())
@@ -73,117 +85,130 @@ document.getElementById("taskForm").onsubmit = function (event) {
     .catch((error) => console.error("Error:", error));
 };
 
-function getDownloadStatusText(task_obj) {
-  const merge_status = task_obj["merge_status"];
-  const cur = task_obj["cur"];
-  const tot = task_obj["tot"];
-  const cancel = task_obj["canceled"];
+function getDownloadStatusText(taskObj) {
+  const mergeStatus = taskObj["merge_status"];
+  const cur = taskObj["cur"];
+  const tot = taskObj["tot"];
+  const cancel = taskObj["canceled"];
   if (cancel) {
     return "已取消";
   }
-  if (merge_status == 0) {
-    if (cur == 0) {
+  if (mergeStatus == 0) {
+    if (cur == 0 || tot == 0) {
       return "等待中...";
-    } else {
-      return `下载中...(${((cur / tot) * 100).toFixed(2)} %)`;
     }
-  } else if (merge_status == 1) {
-    return "合并视频中...";
-  } else if (merge_status == 2) {
-    return "已完成";
-  } else {
-    return "未知状态";
+    return `下载中...(${((cur / tot) * 100).toFixed(2)} %)`;
   }
+  if (mergeStatus == 1) {
+    return "合并视频中...";
+  }
+  if (mergeStatus == 2) {
+    return "已完成";
+  }
+  if (mergeStatus == 3) {
+    if (tot == 0) {
+      return "未找到可用音频来源";
+    }
+    return `下载音频中...(${cur}/${tot})`;
+  }
+  return "未知状态";
 }
 
 function cancelTask(btn) {
   let uuid = btn.getAttribute("data-task-uuid");
-  console.log(uuid);
   fetch(`/kill_task?uuid=${uuid}`)
     .then((response) => response.json())
-    .then((data) => {
-      console.log(data);
-      let remove_node = document.getElementById(`${uuid}-task`);
-      if (remove_node != null) {
-        remove_node.parentNode.removeChild(remove_node);
+    .then(() => {
+      let removeNode = document.getElementById(`${uuid}-task`);
+      if (removeNode != null) {
+        removeNode.parentNode.removeChild(removeNode);
       }
     })
     .catch((error) => console.error("Error:", error));
 }
 
 setInterval(() => {
-  const addElement = (task_obj) => {
-    if (task_obj["canceled"]) {
+  const addElement = (taskObj) => {
+    if (taskObj["canceled"]) {
       return;
     }
-    const download_version =
-      task_obj["download_type"] == 2 ? "电脑屏幕" : "摄像头";
+    const downloadVersion = getDownloadVersionText(taskObj);
     const html = `
-      <div class="task" id="${task_obj["uuid"]}-task">
+      <div class="task" id="${taskObj["uuid"]}-task">
         <div class="task-info">
-          <span>${task_obj["name"]}(${download_version})</span>
+          <span>${taskObj["name"]}(${downloadVersion})</span>
           <div class="status-container">
-            <span class="status" id="${task_obj["uuid"]
-      }-status">${getDownloadStatusText(task_obj)}</span>
-            <button class="cancel-btn" data-task-uuid="${task_obj["uuid"]
-      }" onclick="cancelTask(this);">×</button>
+            <span class="status" id="${taskObj["uuid"]}-status">${getDownloadStatusText(taskObj)}</span>
+            <button class="cancel-btn" data-task-uuid="${taskObj["uuid"]}" onclick="cancelTask(this);">x</button>
           </div>
         </div>
         <div class="progress-bar">
-          <div class="progress" id="${task_obj["uuid"]}-progress"></div>
+          <div class="progress" id="${taskObj["uuid"]}-progress"></div>
         </div>
       </div>
     `;
     let taskList = document.getElementById("taskList");
     taskList.innerHTML = html + taskList.innerHTML;
   };
-  const updateElement = (task_obj) => {
-    const uuid = task_obj["uuid"];
-    const status_ele = document.getElementById(`${task_obj["uuid"]}-status`);
-    const progress_ele = document.getElementById(
-      `${task_obj["uuid"]}-progress`
-    );
-    status_ele.innerText = getDownloadStatusText(task_obj);
-    const progress = (100 * task_obj["cur"]) / task_obj["tot"];
-    progress_ele.style.width = `${progress.toFixed(2)}%`;
+
+  const updateElement = (taskObj) => {
+    const statusEle = document.getElementById(`${taskObj["uuid"]}-status`);
+    const progressEle = document.getElementById(`${taskObj["uuid"]}-progress`);
+    statusEle.innerText = getDownloadStatusText(taskObj);
+    const progress = taskObj["tot"] > 0 ? (100 * taskObj["cur"]) / taskObj["tot"] : 0;
+    progressEle.style.width = `${progress.toFixed(2)}%`;
   };
-  const removeCanceledElement = (uuid_arr) => {
-    let all_task_elem = document.getElementsByClassName("task");
-    for (let i = 0; i < all_task_elem.length; i++) {
-      const uuid = all_task_elem[i].getAttribute("id").replace("-task", "");
-      if (!uuid_arr.includes(uuid)) {
-        all_task_elem[i].parentNode.removeChild(all_task_elem[i]);
+
+  const removeCanceledElement = (uuidArr) => {
+    let allTaskElem = document.getElementsByClassName("task");
+    for (let i = 0; i < allTaskElem.length; i++) {
+      const uuid = allTaskElem[i].getAttribute("id").replace("-task", "");
+      if (!uuidArr.includes(uuid)) {
+        allTaskElem[i].parentNode.removeChild(allTaskElem[i]);
       }
     }
-  }
+  };
+
   fetch("/get_status")
     .then((response) => response.json())
     .then((data) => {
-      // console.log(data);
-      let uuid_arr = [];
+      let uuidArr = [];
       for (let i = 0; i < data.length; i++) {
         const uuid = data[i]["uuid"];
         if (!data[i]["canceled"]) {
-          uuid_arr.push(uuid);
+          uuidArr.push(uuid);
         }
-        let exist_ele = document.getElementById(`${uuid}-task`);
-        if (exist_ele == null) {
+        let existEle = document.getElementById(`${uuid}-task`);
+        if (existEle == null) {
           addElement(data[i]);
         } else {
           updateElement(data[i]);
         }
       }
-      removeCanceledElement(uuid_arr);
+      removeCanceledElement(uuidArr);
     })
     .catch((error) => console.error("Error:", error));
 }, 1000);
 
-const listItems = document.querySelectorAll("#courseList li");
-listItems.forEach((item) => {
-  item.addEventListener("click", () => {
-    item.classList.toggle("selected");
+function getDownloadVersionText(taskObj) {
+  if (taskObj["download_type"] == "3" || taskObj["download_mode"] == "audio") {
+    return "仅音频";
+  }
+  if (taskObj["download_type"] == "2") {
+    return taskObj["download_audio"] ? "电脑屏幕+音频" : "电脑屏幕";
+  }
+  return taskObj["download_audio"] ? "摄像头+音频" : "摄像头";
+}
+
+function bindCourseListEvents() {
+  document.querySelectorAll("#courseList li").forEach((item) => {
+    item.addEventListener("click", () => {
+      item.classList.toggle("selected");
+    });
   });
-});
+}
+
+bindCourseListEvents();
 
 function selectAll(select) {
   let list = document.getElementById("courseList");

@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="ch">
+<html lang="zh-CN">
 
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=0.5" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="styles.css" />
   <title>延河下载器</title>
 </head>
@@ -11,52 +11,54 @@
 <body>
   <div class="container">
     <button id="newTaskButton" class="btn blue">新建任务</button>
-    <div id="taskList">
-
-    </div>
+    <div id="taskList"></div>
   </div>
 
-  <!-- Popup for creating a new task -->
   <div id="taskPopup" class="popup">
     <div class="popup-content">
-      <span class="close">×</span>
+      <span class="close">x</span>
       <form id="taskForm">
         <div class="form-group">
-          <label for="courseId">课程ID号:</label>
+          <label for="courseId">课程 ID</label>
           <input type="text" id="courseId" name="courseId" class="input-field" />
-          <label for="auth">身份认证码: </label>
+          <label for="auth">身份认证码</label>
           <p id="auth_prompt">{{ auth_prompt }}</p>
           <input type="text" id="auth" name="auth" class="input-field" placeholder="{{ auth }}" />
-          <button type="button" class="btn" onclick="fetchCourseNumber()">
-            获取课程信息
-          </button>
+          <button type="button" class="btn" onclick="fetchCourseNumber()">获取课程信息</button>
         </div>
+
         <div class="form-group">
-          <label for="downloadType">下载类型:</label>
+          <label for="downloadType">下载内容</label>
           <select id="downloadType" name="downloadType" class="input-field">
-            <option value="1">摄像头</option>
-            <option value="2">电脑屏幕</option>
+            <option value="1">摄像头视频</option>
+            <option value="2">电脑屏幕视频</option>
+            <option value="3">仅音频</option>
           </select>
         </div>
+
         <div class="form-group">
-          <label for="downloadAudio">蓝牙话筒音频（若老师未使用蓝牙话筒则该路音频无声音）:</label>
-          <select id="downloadAudio" name="downloadAudio" class="input-field">
-            <option value="1">下载</option>
-            <option value="2">不下载</option>
+          <label for="audioSourceMode">音频来源</label>
+          <select id="audioSourceMode" name="audioSourceMode" class="input-field">
+            <option value="all">下载全部可用音频来源</option>
+            <option value="first">只下载第一个音频来源</option>
+            <option value="none">不下载独立音频</option>
           </select>
         </div>
+
         <div class="form-group">
-          <label id="courseName11">课程名:</label>
+          <label id="courseName11">课程名</label>
           <label id="professor11">老师:</label>
         </div>
+
         <div class="form-group">
-          <label for="courses">选择课程编号:</label>
+          <label for="courses">选择课程编号</label>
           <button type="button" class="btn blue" onclick="selectAll(true);">全选</button>
           <button type="button" class="btn blue" onclick="selectAll(false);">全不选</button>
           <ul id="courseList">
             <li data-value="1">请获取课程信息</li>
           </ul>
         </div>
+
         <button type="submit" class="btn blue">新建任务</button>
       </form>
     </div>

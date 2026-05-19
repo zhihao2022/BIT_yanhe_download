@@ -29,8 +29,9 @@ app = Flask(__name__, static_folder="webui")
         "canceled":
         "merge_status": 
         "download_type":
+        "download_mode": video | audio
         "download_audio": bool
-        "audio_url":
+        "audio_sources":
     }
 """
 all_task_status = []
@@ -78,18 +79,52 @@ def execute_one_download_task_worker(task_dict, father_queue):
     global current_task_uuid, g_father_queue
     print(f"downloading task {task_dict}")
     current_task_uuid = task_dict["uuid"]
-    url = task_dict["url"]
     output = task_dict["output"]
     name = task_dict["name"]
+    audio_sources = task_dict.get("audio_sources", [])
     g_father_queue = father_queue
+
+    if task_dict.get("download_mode") == "audio":
+        download_audio_sources(audio_sources, output, name, father_queue)
+        return
+
+    url = task_dict["url"]
     m3u8dl.M3u8Download(url, output, name, progress_callback=executor_progress_callback)
-    if task_dict["download_audio"]:
-        audio_url = task_dict["audio_url"]
-        if audio_url:
-            print("Downloading audio...")
-            utils.download_audio(audio_url, output, name)
-            print("Download audio successfully.")
+    if task_dict["download_audio"] and audio_sources:
+        download_audio_sources(audio_sources, output, name, father_queue)
     return
+
+
+def download_audio_sources(audio_sources, output, name, father_queue):
+    total = len(audio_sources)
+    father_queue.put(
+        {
+            "uuid": current_task_uuid,
+            "cur": 0,
+            "tot": total,
+            "merge_status": 3,
+        }
+    )
+    for index, source in enumerate(audio_sources):
+        print(f"Downloading audio source {source.get('index', index + 1)}...")
+        suffix = "" if total == 1 else f"-audio-{source.get('index', index + 1)}"
+        utils.download_audio(source["url"], output, name, suffix=suffix)
+        father_queue.put(
+            {
+                "uuid": current_task_uuid,
+                "cur": index + 1,
+                "tot": total,
+                "merge_status": 3,
+            }
+        )
+    father_queue.put(
+        {
+            "uuid": current_task_uuid,
+            "cur": total,
+            "tot": total,
+            "merge_status": 2,
+        }
+    )
 
 
 def execute_tasks():
@@ -167,7 +202,11 @@ def new_task():
     course_id = data["course_id"]
     course_number = data["course_number"]
     download_version = data["download_version"]
-    download_audio = data["download_audio"]
+    audio_source_mode = data.get("audio_source_mode")
+    if audio_source_mode is None:
+        audio_source_mode = "first" if data.get("download_audio") == "1" else "none"
+    if download_version == "3" and audio_source_mode == "none":
+        audio_source_mode = "all"
     videoList, courseName, professor = utils.get_course_info(courseID=course_id)
     course_number_arr = course_number.split(",")
     ret_id = []
@@ -189,15 +228,28 @@ def new_task():
             "canceled": False,
             "merge_status": 0,
             "download_type": download_version,
-            "download_audio": download_audio == "1",
+            "download_mode": "audio" if download_version == "3" else "video",
+            "download_audio": audio_source_mode != "none",
+            "audio_source_mode": audio_source_mode,
+            "audio_sources": [],
             "audio_url": "",
         }
 
-        task_status["audio_url"] = utils.get_audio_url(c["video_ids"][0])
+        audio_sources = utils.get_audio_sources(c.get("video_ids", []))
+        if audio_source_mode == "first":
+            audio_sources = audio_sources[:1]
+        elif audio_source_mode == "none" and download_version != "3":
+            audio_sources = []
+        task_status["audio_sources"] = audio_sources
+        task_status["audio_url"] = audio_sources[0]["url"] if audio_sources else ""
+        task_status["download_audio"] = bool(audio_sources)
         if download_version == "2":
             print("Downloading screen...")
             task_status["url"] = c["videos"][0]["vga"]
             task_status["output"] = "output/" + courseName + "-screen"
+        elif download_version == "3":
+            print("Downloading audio...")
+            task_status["output"] = "output/" + courseName + "-audio"
         else:
             print("Downloading video...")
             task_status["url"] = c["videos"][0]["main"]
